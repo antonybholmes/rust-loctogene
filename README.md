@@ -1,2 +1,1 @@
-# go-dna
 # rust-loctogene
