@@ -1,6 +1,11 @@
+msg=$1 #"Bug fixes and updates."
 type="fix"
-msg="Bug fixes and updates."
 branch="dev"
+
+if [[ -z "${msg}" ]]
+then
+	msg="Bug fixes and updates."
+fi
 
 OPTSTRING="t:m:b:"
 

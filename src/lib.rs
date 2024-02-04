@@ -61,7 +61,7 @@ impl Loctogene {
         location: &dna::Location,
         level: u32,
     ) -> Result<Features, String> {
-        let mid: u32 = (location.start + location.end) / 2;
+        let mid: u32 = location.mid();
 
         let mut stmt = match self.db.prepare(WITHIN_GENE_SQL) {
             Ok(stmt) => stmt,
@@ -119,7 +119,7 @@ impl Loctogene {
         n: u16,
         level: u32,
     ) -> Result<Features, String> {
-        let mid: u32 = (location.start + location.end) / 2;
+        let mid: u32 = location.mid();
 
         let mut stmt = match self.db.prepare(CLOSEST_GENE_SQL) {
             Ok(stmt) => stmt,
