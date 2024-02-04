@@ -111,7 +111,7 @@ impl Loctogene {
             .collect::<Vec<FeatureRecord>>();
 
         let ret: Features = Features {
-            location: format!("{}", location),
+            location: location.to_string(),
             level: get_level(level),
             features: records,
         };
@@ -154,7 +154,7 @@ impl Loctogene {
             .collect::<Vec<FeatureRecord>>();
 
         let ret: Features = Features {
-            location: format!("{}", location),
+            location: location.to_string(),
             level: get_level(level),
             features: records,
         };
