@@ -1,3 +1,6 @@
+ 
+use std::fmt::Error;
+
 use rusqlite::Connection;
 use serde::Serialize;
 
@@ -51,9 +54,12 @@ pub struct Loctogene {
 
 impl Loctogene {
     pub fn new(file: &str) -> Result<Loctogene, String> {
-        let db: Connection = Connection::open(file).unwrap();
+        let db: Connection = match Connection::open(file) {
+            Ok(db) => db,
+            Err(err) => return Err(format!("{}", err)),
+        };
 
-        return Ok(Loctogene { db });
+        Ok(Loctogene { db })
     }
 
     pub fn get_genes_within(
@@ -65,7 +71,7 @@ impl Loctogene {
 
         let mut stmt = match self.db.prepare(WITHIN_GENE_SQL) {
             Ok(stmt) => stmt,
-            Err(err) => panic!("{}", err),
+            Err(err) => return Err(format!("{}", err)),
         };
 
         let mapped_rows = match stmt.query_map(
@@ -92,7 +98,7 @@ impl Loctogene {
             },
         ) {
             Ok(rows) => rows,
-            Err(err) => panic!("{}", err),
+            Err(err) => return Err(format!("{}", err)),
         };
 
         // let mut id:i64 = 0;
@@ -123,7 +129,7 @@ impl Loctogene {
 
         let mut stmt = match self.db.prepare(CLOSEST_GENE_SQL) {
             Ok(stmt) => stmt,
-            Err(err) => panic!("{}", err),
+            Err(err) => return Err(format!("{}", err)),
         };
 
         let mapped_rows =
@@ -140,7 +146,7 @@ impl Loctogene {
                 })
             }) {
                 Ok(rows) => rows,
-                Err(err) => panic!("{}", err),
+                Err(err) => return Err(format!("{}", err)),
             };
 
         let records: Vec<FeatureRecord> = mapped_rows
