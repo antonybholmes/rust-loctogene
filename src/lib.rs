@@ -50,7 +50,7 @@ pub struct Loctogene {
 }
 
 impl Loctogene {
-    pub fn new(file: &str) -> Result<Loctogene, String> {
+    pub fn new(file: String) -> Result<Loctogene, String> {
         let db: Connection = match Connection::open(file) {
             Ok(db) => db,
             Err(err) => return Err(format!("{}", err)),
@@ -66,7 +66,7 @@ impl Loctogene {
     ) -> Result<Features, String> {
         let mid: u32 = location.mid();
 
-        let mut stmt = match self.db.prepare(WITHIN_GENE_SQL) {
+        let mut stmt: rusqlite::Statement<'_> = match self.db.prepare(WITHIN_GENE_SQL) {
             Ok(stmt) => stmt,
             Err(err) => return Err(format!("{}", err)),
         };
@@ -113,7 +113,7 @@ impl Loctogene {
             features: records,
         };
 
-        return Ok(ret);
+        Ok(ret)
     }
 
     pub fn get_closest_genes(
@@ -124,7 +124,7 @@ impl Loctogene {
     ) -> Result<Features, String> {
         let mid: u32 = location.mid();
 
-        let mut stmt = match self.db.prepare(CLOSEST_GENE_SQL) {
+        let mut stmt: rusqlite::Statement<'_> = match self.db.prepare(CLOSEST_GENE_SQL) {
             Ok(stmt) => stmt,
             Err(err) => return Err(format!("{}", err)),
         };
@@ -156,6 +156,6 @@ impl Loctogene {
             features: records,
         };
 
-        return Ok(ret);
+        Ok(ret)
     }
 }
