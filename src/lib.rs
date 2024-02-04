@@ -1,6 +1,3 @@
- 
-use std::fmt::Error;
-
 use rusqlite::Connection;
 use serde::Serialize;
 
