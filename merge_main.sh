@@ -1,10 +1,12 @@
-# format code
-#yarn update-version
-#yarn format
-
+msg=$1 #"Bug fixes and updates."
 type="fix"
-msg="Bug fixes and updates."
 branch="dev"
+
+if [[ -z "${msg}" ]]
+then
+	msg="Bug fixes and updates."
+fi
+
 
 OPTSTRING="t:m:b:"
 
@@ -30,6 +32,7 @@ done
 echo "${type}: ${msg}"
 echo ${branch}
 
+./commit.sh -t "${type}" -m "${msg}" -b dev
 
 git switch main
 git merge dev -m "${type}: ${msg}"
