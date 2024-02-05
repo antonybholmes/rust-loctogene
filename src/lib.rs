@@ -1,4 +1,4 @@
-use rusqlite::Connection;
+use r2d2_sqlite::SqliteConnectionManager;
 use serde::Serialize;
 
 mod tests;
@@ -46,17 +46,24 @@ fn get_level(level: u32) -> String {
 }
 
 pub struct Loctogene {
-    db: Connection,
+    pool: r2d2::Pool<SqliteConnectionManager>,
 }
 
 impl Loctogene {
-    pub fn new(file: String) -> Result<Loctogene, String> {
-        let db: Connection = match Connection::open(file) {
-            Ok(db) => db,
+    pub fn new(file: &str) -> Result<Loctogene, String> {
+        // let db: Connection = match Connection::open(file) {
+        //     Ok(db) => db,
+        //     Err(err) => return Err(format!("{}", err)),
+        // };
+
+        let manager = SqliteConnectionManager::file(file);
+
+        let pool: r2d2::Pool<SqliteConnectionManager> = match r2d2::Pool::builder().build(manager) {
+            Ok(pool) => pool,
             Err(err) => return Err(format!("{}", err)),
         };
 
-        Ok(Loctogene { db })
+        Ok(Loctogene { pool })
     }
 
     pub fn get_genes_within(
@@ -66,7 +73,12 @@ impl Loctogene {
     ) -> Result<Features, String> {
         let mid: u32 = location.mid();
 
-        let mut stmt: rusqlite::Statement<'_> = match self.db.prepare(WITHIN_GENE_SQL) {
+        let pool: r2d2::PooledConnection<SqliteConnectionManager> = match self.pool.get() {
+            Ok(pool) => pool,
+            Err(err) => return Err(format!("{}", err)),
+        };
+
+        let mut stmt: rusqlite::Statement<'_> = match pool.prepare(WITHIN_GENE_SQL) {
             Ok(stmt) => stmt,
             Err(err) => return Err(format!("{}", err)),
         };
@@ -124,7 +136,12 @@ impl Loctogene {
     ) -> Result<Features, String> {
         let mid: u32 = location.mid();
 
-        let mut stmt: rusqlite::Statement<'_> = match self.db.prepare(CLOSEST_GENE_SQL) {
+        let pool: r2d2::PooledConnection<SqliteConnectionManager> = match self.pool.get() {
+            Ok(pool) => pool,
+            Err(err) => return Err(format!("{}", err)),
+        };
+
+        let mut stmt: rusqlite::Statement<'_> = match pool.prepare(CLOSEST_GENE_SQL) {
             Ok(stmt) => stmt,
             Err(err) => return Err(format!("{}", err)),
         };
