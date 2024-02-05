@@ -57,7 +57,7 @@ impl fmt::Display for Level {
 }
 
 #[derive(Serialize)]
-pub struct FeatureRecord {
+pub struct GenomicFeature {
     pub id: u32,
     pub chr: String,
     pub start: u32,
@@ -68,12 +68,11 @@ pub struct FeatureRecord {
     pub dist: i32,
 }
 
-#[derive(Serialize)]
-pub struct Features {
-    pub location: Location,
-    pub level: Level,
-    pub features: Vec<FeatureRecord>,
-}
+// #[derive(Serialize)]
+// pub struct GenomicFeatures {
+//     pub level: Level,
+//     pub features: Vec<GenomicFeature>,
+// }
 
 //const NO_FEATURES: [Features; 0] = [] .to_vec();
 
@@ -102,9 +101,9 @@ impl Loctogene {
 
     pub fn get_genes_within(
         &self,
-        location: dna::Location,
+        location: &Location,
         level: Level,
-    ) -> Result<Features, String> {
+    ) -> Result<Vec<GenomicFeature>, String> {
         let mid: u32 = location.mid();
 
         let pool: r2d2::PooledConnection<SqliteConnectionManager> = match self.pool.get() {
@@ -128,7 +127,7 @@ impl Loctogene {
                 location.end
             ],
             |row: &rusqlite::Row<'_>| {
-                Ok(FeatureRecord {
+                Ok(GenomicFeature {
                     id: row.get(0).expect("col 0"),
                     chr: row.get(1).expect("col 1"),
                     start: row.get(2).expect("col 2"),
@@ -144,25 +143,19 @@ impl Loctogene {
             Err(err) => return Err(format!("{}", err)),
         };
 
-        let records: Vec<FeatureRecord> = mapped_rows
-            .filter_map(|x: Result<FeatureRecord, rusqlite::Error>| x.ok())
-            .collect::<Vec<FeatureRecord>>();
+        let features: Vec<GenomicFeature> = mapped_rows
+            .filter_map(|x: Result<GenomicFeature, rusqlite::Error>| x.ok())
+            .collect::<Vec<GenomicFeature>>();
 
-        let ret: Features = Features {
-            location,
-            level,
-            features: records,
-        };
-
-        Ok(ret)
+        Ok(features)
     }
 
     pub fn get_closest_genes(
         &self,
-        location: dna::Location,
+        location: &dna::Location,
         n: u16,
         level: Level,
-    ) -> Result<Features, String> {
+    ) -> Result<Vec<GenomicFeature>, String> {
         let mid: u32 = location.mid();
 
         let pool: r2d2::PooledConnection<SqliteConnectionManager> = match self.pool.get() {
@@ -181,7 +174,7 @@ impl Loctogene {
         let mapped_rows = match stmt.query_map(
             rusqlite::params![mid, level as u8, location.chr, mid, n],
             |row: &rusqlite::Row<'_>| {
-                Ok(FeatureRecord {
+                Ok(GenomicFeature {
                     id: row.get(0).expect("col 0"),
                     chr: row.get(1).expect("col 1"),
                     start: row.get(2).expect("col 2"),
@@ -201,16 +194,10 @@ impl Loctogene {
         // and if element is ok, the data is the feature record. Use
         // filter map to keep only the valid records and convert them to
         // actual data by removing the Ok wrapper
-        let records: Vec<FeatureRecord> = mapped_rows
-            .filter_map(|x: Result<FeatureRecord, rusqlite::Error>| x.ok())
-            .collect::<Vec<FeatureRecord>>();
+        let features: Vec<GenomicFeature> = mapped_rows
+            .filter_map(|x: Result<GenomicFeature, rusqlite::Error>| x.ok())
+            .collect::<Vec<GenomicFeature>>();
 
-        let ret: Features = Features {
-            location,
-            level,
-            features: records,
-        };
-
-        Ok(ret)
+        Ok(features)
     }
 }

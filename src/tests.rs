@@ -16,12 +16,12 @@ fn test_within() {
         Err(err)=>panic!("{}", err)
     };
 
-    let genesdb: Loctogene = match Loctogene::new("/home/antony/development/go/docker-go-edb-api/data/loctogene/grch38.db") {
+    let genesdb: Loctogene = match Loctogene::new("../docker-rust-edb-api/data/loctogene/grch38.db") {
         Ok(db)=>db,
         Err(err)=>panic!("{}", err)
     };
 
-    let records: crate::Features =  match genesdb.get_genes_within(loc, crate::Level::Gene) {
+    let records:Vec<crate::GenomicFeature>  =  match genesdb.get_genes_within(&loc, crate::Level::Gene) {
         Ok(records)=>records,
         Err(err)=>panic!("{}", err)
     };
@@ -44,7 +44,7 @@ fn test_closest() {
         Err(err)=>panic!("{}", err)
     };
 
-    let records: crate::Features =  match genesdb.get_closest_genes(loc, 10, crate::Level::Gene) {
+    let records:Vec<crate::GenomicFeature>  =  match genesdb.get_closest_genes(&loc, 10, crate::Level::Gene) {
         Ok(records)=>records,
         Err(err)=>panic!("{}", err)
     };
