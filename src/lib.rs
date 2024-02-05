@@ -56,7 +56,7 @@ impl Loctogene {
         //     Err(err) => return Err(format!("{}", err)),
         // };
 
-        let manager = SqliteConnectionManager::file(file);
+        let manager: SqliteConnectionManager = SqliteConnectionManager::file(file);
 
         let pool: r2d2::Pool<SqliteConnectionManager> = match r2d2::Pool::builder().build(manager) {
             Ok(pool) => pool,
@@ -93,7 +93,7 @@ impl Loctogene {
                 location.end,
                 location.end
             ],
-            |row| {
+            |row: &rusqlite::Row<'_>| {
                 Ok(FeatureRecord {
                     id: row.get(0).expect("col 0"),
                     chr: row.get(1).expect("col 1"),
@@ -146,8 +146,9 @@ impl Loctogene {
             Err(err) => return Err(format!("{}", err)),
         };
 
-        let mapped_rows =
-            match stmt.query_map(rusqlite::params![mid, level, location.chr, mid, n], |row| {
+        let mapped_rows = match stmt.query_map(
+            rusqlite::params![mid, level, location.chr, mid, n],
+            |row: &rusqlite::Row<'_>| {
                 Ok(FeatureRecord {
                     id: row.get(0).expect("col 0"),
                     chr: row.get(1).expect("col 1"),
@@ -158,10 +159,11 @@ impl Loctogene {
                     gene_symbol: row.get(6).expect("col 6"),
                     dist: row.get(7).expect("col 7"),
                 })
-            }) {
-                Ok(rows) => rows,
-                Err(err) => return Err(format!("{}", err)),
-            };
+            },
+        ) {
+            Ok(rows) => rows,
+            Err(err) => return Err(format!("{}", err)),
+        };
 
         let records: Vec<FeatureRecord> = mapped_rows
             .filter_map(Result::ok)
