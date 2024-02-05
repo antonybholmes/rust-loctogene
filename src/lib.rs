@@ -1,3 +1,6 @@
+use std::fmt;
+
+use dna::Location;
 use r2d2_sqlite::SqliteConnectionManager;
 use serde::Serialize;
 
@@ -14,6 +17,45 @@ const CLOSEST_GENE_SQL: &str = r#"SELECT id, chr, start, end, strand, gene_id, g
 	ORDER BY ABS(stranded_start - ?) 
 	LIMIT ?"#;
 
+#[derive(Serialize, Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Level {
+    Gene = 1,
+    Transcript = 2,
+    Exon = 3,
+}
+
+impl From<&str> for Level {
+    fn from(level: &str) -> Self {
+        match level {
+            "transcript" => Level::Transcript,
+            "exon" => Level::Exon,
+            "2" => Level::Transcript,
+            "3" => Level::Exon,
+            _ => Level::Gene,
+        }
+    }
+}
+
+impl From<u8> for Level {
+    fn from(level: u8) -> Self {
+        match level {
+            2 => Level::Transcript,
+            3 => Level::Exon,
+            _ => Level::Gene,
+        }
+    }
+}
+
+impl fmt::Display for Level {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Level::Gene => write!(f, "Gene"),
+            Level::Transcript => write!(f, "Transcript"),
+            Level::Exon => write!(f, "Exon"),
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct FeatureRecord {
     pub id: u32,
@@ -28,22 +70,14 @@ pub struct FeatureRecord {
 
 #[derive(Serialize)]
 pub struct Features {
-    pub location: String,
-    pub level: String,
+    pub location: Location,
+    pub level: Level,
     pub features: Vec<FeatureRecord>,
 }
 
 //const NO_FEATURES: [Features; 0] = [] .to_vec();
 
 //const ERROR_FEATURES:Features= Features{location: dna::EMPTY_STRING, level: dna::EMPTY_STRING, features: [].to_vec()};
-
-fn get_level(level: u32) -> String {
-    match level {
-        2 => "transcript".to_string(),
-        3 => "exon".to_owned(),
-        _ => "gene".to_owned(),
-    }
-}
 
 pub struct Loctogene {
     pool: r2d2::Pool<SqliteConnectionManager>,
@@ -68,8 +102,8 @@ impl Loctogene {
 
     pub fn get_genes_within(
         &self,
-        location: &dna::Location,
-        level: u32,
+        location: dna::Location,
+        level: Level,
     ) -> Result<Features, String> {
         let mid: u32 = location.mid();
 
@@ -86,7 +120,7 @@ impl Loctogene {
         let mapped_rows = match stmt.query_map(
             rusqlite::params![
                 mid,
-                level,
+                level as u8,
                 location.chr,
                 location.start,
                 location.start,
@@ -110,18 +144,13 @@ impl Loctogene {
             Err(err) => return Err(format!("{}", err)),
         };
 
-        // let mut id:i64 = 0;
-        // while let Some(row) = rows.next().expect("while row failed") {
-        //     id=row.get(1).expect("get row failed");
-        // }
-
         let records: Vec<FeatureRecord> = mapped_rows
-            .filter_map(Result::ok)
+            .filter_map(|x: Result<FeatureRecord, rusqlite::Error>| x.ok())
             .collect::<Vec<FeatureRecord>>();
 
         let ret: Features = Features {
-            location: location.to_string(),
-            level: get_level(level),
+            location,
+            level,
             features: records,
         };
 
@@ -130,9 +159,9 @@ impl Loctogene {
 
     pub fn get_closest_genes(
         &self,
-        location: &dna::Location,
+        location: dna::Location,
         n: u16,
-        level: u32,
+        level: Level,
     ) -> Result<Features, String> {
         let mid: u32 = location.mid();
 
@@ -146,8 +175,11 @@ impl Loctogene {
             Err(err) => return Err(format!("{}", err)),
         };
 
+        println!("{}", level as u8);
+
+        // query_map converts rusqlite into a standard iterator
         let mapped_rows = match stmt.query_map(
-            rusqlite::params![mid, level, location.chr, mid, n],
+            rusqlite::params![mid, level as u8, location.chr, mid, n],
             |row: &rusqlite::Row<'_>| {
                 Ok(FeatureRecord {
                     id: row.get(0).expect("col 0"),
@@ -165,13 +197,17 @@ impl Loctogene {
             Err(err) => return Err(format!("{}", err)),
         };
 
+        // filter map because the query returns an iterator of results
+        // and if element is ok, the data is the feature record. Use
+        // filter map to keep only the valid records and convert them to
+        // actual data by removing the Ok wrapper
         let records: Vec<FeatureRecord> = mapped_rows
-            .filter_map(Result::ok)
+            .filter_map(|x: Result<FeatureRecord, rusqlite::Error>| x.ok())
             .collect::<Vec<FeatureRecord>>();
 
         let ret: Features = Features {
-            location: location.to_string(),
-            level: get_level(level),
+            location,
+            level,
             features: records,
         };
 
