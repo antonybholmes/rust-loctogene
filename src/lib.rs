@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{error::Error, fmt};
 
 use dna::Location;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -9,7 +9,7 @@ mod tests;
 
 const WITHIN_GENE_SQL: &str = r#"SELECT id, chr, start, end, strand, gene_id, gene_symbol, start - ? 
     FROM genes 
-    WHERE level=? AND chr=? AND ((start <= ? AND end >= ?) OR (start <= ? AND end >= ?)) 
+    WHERE level = ? AND chr = ? AND ((start <= ? AND end >= ?) OR (start <= ? AND end >= ?)) 
     ORDER BY start ASC"#;
 
 const IN_EXON_SQL: &str = r#"SELECT id, chr, start, end, strand, gene_id, gene_symbol, start - ? 
@@ -27,6 +27,30 @@ const CLOSEST_GENE_SQL: &str = r#"SELECT id, chr, start, end, strand, gene_id, g
 	WHERE level=? AND chr=?
 	ORDER BY ABS(stranded_start - ?) 
 	LIMIT ?"#;
+
+#[derive(Serialize, Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Strand {
+    Plus = 1,
+    Neg = 2,
+}
+
+impl From<&str> for Strand {
+    fn from(level: &str) -> Self {
+        match level {
+            "-" => Strand::Plus,
+            _ => Strand::Plus,
+        }
+    }
+}
+
+impl fmt::Display for Strand {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Strand::Neg => write!(f, "-"),
+            _ => write!(f, "+"),
+        }
+    }
+}
 
 #[derive(Serialize, Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Level {
@@ -67,7 +91,7 @@ impl fmt::Display for Level {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug, PartialEq, Eq, Clone, Copy)]
 pub struct TSSRegion {
     pub offset_5p: i32,
     pub offset_3p: i32,
@@ -87,12 +111,12 @@ pub const DEFAULT_TSS_REGION: TSSRegion = TSSRegion {
     offset_3p: 1000,
 };
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
 pub struct GenomicFeature {
     pub id: u32,
     pub chr: String,
-    pub start: u32,
-    pub end: u32,
+    pub start: i32,
+    pub end: i32,
     pub strand: String,
     pub gene_id: String,
     pub gene_symbol: String,
@@ -114,7 +138,7 @@ pub struct Loctogene {
 }
 
 impl Loctogene {
-    pub fn new(file: &str) -> Result<Loctogene, String> {
+    pub fn new(file: &str) -> Result<Loctogene, Box<dyn Error>> {
         // let db: Connection = match Connection::open(file) {
         //     Ok(db) => db,
         //     Err(err) => return Err(format!("{}", err)),
@@ -122,32 +146,56 @@ impl Loctogene {
 
         let manager: SqliteConnectionManager = SqliteConnectionManager::file(file);
 
-        let pool: r2d2::Pool<SqliteConnectionManager> = match r2d2::Pool::builder().build(manager) {
-            Ok(pool) => pool,
-            Err(err) => return Err(format!("{}", err)),
-        };
+        let pool: r2d2::Pool<SqliteConnectionManager> = r2d2::Pool::builder().build(manager)?;
 
         Ok(Loctogene { pool })
     }
+
+    // pub fn get_genes_within_stranded(
+    //     &self,
+    //     location: &Location,
+    //     strand: Strand,
+    //     level: Level,
+    // ) -> Result<Vec<GenomicFeature>, Box<dyn Error>> {
+    //     let mid: u32 = location.mid();
+
+    //     let pool: r2d2::PooledConnection<SqliteConnectionManager> = self.pool.get()?;
+
+    //     let mut stmt: rusqlite::Statement<'_> = pool.prepare(WITHIN_GENE_STRANDED_SQL)?;
+
+    //     let mapped_rows = stmt.query_map(
+    //         rusqlite::params![
+    //             mid,
+    //             level as u8,
+    //             location.chr,
+    //             strand.to_string(),
+    //             location.start,
+    //             location.start,
+    //             location.end,
+    //             location.end
+    //         ],
+    //         |row: &rusqlite::Row<'_>| row_to_feature(row),
+    //     )?;
+
+    //     let features: Vec<GenomicFeature> = mapped_rows
+    //         .filter_map(|x: Result<GenomicFeature, rusqlite::Error>| x.ok())
+    //         .collect::<Vec<GenomicFeature>>();
+
+    //     Ok(features)
+    // }
 
     pub fn get_genes_within(
         &self,
         location: &Location,
         level: Level,
-    ) -> Result<Vec<GenomicFeature>, String> {
-        let mid: u32 = location.mid();
+    ) -> Result<Vec<GenomicFeature>, Box<dyn Error>> {
+        let mid: i32 = location.mid();
 
-        let pool: r2d2::PooledConnection<SqliteConnectionManager> = match self.pool.get() {
-            Ok(pool) => pool,
-            Err(err) => return Err(format!("{}", err)),
-        };
+        let pool: r2d2::PooledConnection<SqliteConnectionManager> = self.pool.get()?;
 
-        let mut stmt: rusqlite::Statement<'_> = match pool.prepare(WITHIN_GENE_SQL) {
-            Ok(stmt) => stmt,
-            Err(err) => return Err(format!("{}", err)),
-        };
+        let mut stmt: rusqlite::Statement<'_> = pool.prepare(WITHIN_GENE_SQL)?;
 
-        let mapped_rows = match stmt.query_map(
+        let mapped_rows = stmt.query_map(
             rusqlite::params![
                 mid,
                 level as u8,
@@ -158,10 +206,7 @@ impl Loctogene {
                 location.end
             ],
             |row: &rusqlite::Row<'_>| row_to_feature(row),
-        ) {
-            Ok(rows) => rows,
-            Err(err) => return Err(format!("{}", err)),
-        };
+        )?;
 
         let features: Vec<GenomicFeature> = mapped_rows
             .filter_map(|x: Result<GenomicFeature, rusqlite::Error>| x.ok())
@@ -176,20 +221,14 @@ impl Loctogene {
         &self,
         location: &Location,
         gene_id: &str,
-    ) -> Result<Vec<GenomicFeature>, String> {
-        let mid: u32 = location.mid();
+    ) -> Result<Vec<GenomicFeature>, Box<dyn Error>> {
+        let mid: i32 = location.mid();
 
-        let pool: r2d2::PooledConnection<SqliteConnectionManager> = match self.pool.get() {
-            Ok(pool) => pool,
-            Err(err) => return Err(format!("{}", err)),
-        };
+        let pool: r2d2::PooledConnection<SqliteConnectionManager> = self.pool.get()?;
 
-        let mut stmt: rusqlite::Statement<'_> = match pool.prepare(IN_EXON_SQL) {
-            Ok(stmt) => stmt,
-            Err(err) => return Err(format!("{}", err)),
-        };
+        let mut stmt: rusqlite::Statement<'_> = pool.prepare(IN_EXON_SQL)?;
 
-        let mapped_rows = match stmt.query_map(
+        let mapped_rows = stmt.query_map(
             rusqlite::params![
                 mid,
                 gene_id,
@@ -200,10 +239,7 @@ impl Loctogene {
                 location.end
             ],
             |row: &rusqlite::Row<'_>| row_to_feature(row),
-        ) {
-            Ok(rows) => rows,
-            Err(err) => return Err(format!("{}", err)),
-        };
+        )?;
 
         let features: Vec<GenomicFeature> = mapped_rows
             .filter_map(|x: Result<GenomicFeature, rusqlite::Error>| x.ok())
@@ -218,20 +254,14 @@ impl Loctogene {
         location: &Location,
         gene_id: &str,
         tss_region: &TSSRegion,
-    ) -> Result<Vec<GenomicFeature>, String> {
-        let mid: u32 = location.mid();
+    ) -> Result<Vec<GenomicFeature>, Box<dyn Error>> {
+        let mid: i32 = location.mid();
 
-        let pool: r2d2::PooledConnection<SqliteConnectionManager> = match self.pool.get() {
-            Ok(pool) => pool,
-            Err(err) => return Err(format!("{}", err)),
-        };
+        let pool: r2d2::PooledConnection<SqliteConnectionManager> = self.pool.get()?;
 
-        let mut stmt1: rusqlite::Statement<'_> = match pool.prepare(IN_PROMOTER_SQL) {
-            Ok(stmt) => stmt,
-            Err(err) => return Err(format!("{}", err)),
-        };
+        let mut stmt1: rusqlite::Statement<'_> = pool.prepare(IN_PROMOTER_SQL)?;
 
-        let mapped_rows_1 = match stmt1.query_map(
+        let mapped_rows_1 = stmt1.query_map(
             rusqlite::params![
                 mid,
                 gene_id,
@@ -242,21 +272,15 @@ impl Loctogene {
                 tss_region.offset_3p,
             ],
             |row: &rusqlite::Row<'_>| row_to_feature(row),
-        ) {
-            Ok(rows) => rows,
-            Err(err) => return Err(format!("{}", err)),
-        };
+        )?;
 
         let features_pos =
             mapped_rows_1.filter_map(|x: Result<GenomicFeature, rusqlite::Error>| x.ok());
 
-        let mut stmt2: rusqlite::Statement<'_> = match pool.prepare(IN_PROMOTER_SQL) {
-            Ok(stmt) => stmt,
-            Err(err) => return Err(format!("{}", err)),
-        };
+        let mut stmt2: rusqlite::Statement<'_> = pool.prepare(IN_PROMOTER_SQL)?;
 
         // negative strand so flip tss region
-        let mapped_rows_2 = match stmt2.query_map(
+        let mapped_rows_2 = stmt2.query_map(
             rusqlite::params![
                 mid,
                 gene_id,
@@ -267,10 +291,7 @@ impl Loctogene {
                 tss_region.offset_5p,
             ],
             |row: &rusqlite::Row<'_>| row_to_feature(row),
-        ) {
-            Ok(rows) => rows,
-            Err(err) => return Err(format!("{}", err)),
-        };
+        )?;
 
         let features_neg =
             mapped_rows_2.filter_map(|x: Result<GenomicFeature, rusqlite::Error>| x.ok());
@@ -287,27 +308,18 @@ impl Loctogene {
         location: &dna::Location,
         n: u16,
         level: Level,
-    ) -> Result<Vec<GenomicFeature>, String> {
-        let mid: u32 = location.mid();
+    ) -> Result<Vec<GenomicFeature>, Box<dyn Error>> {
+        let mid: i32 = location.mid();
 
-        let pool: r2d2::PooledConnection<SqliteConnectionManager> = match self.pool.get() {
-            Ok(pool) => pool,
-            Err(err) => return Err(format!("{}", err)),
-        };
+        let pool: r2d2::PooledConnection<SqliteConnectionManager> = self.pool.get()?;
 
-        let mut stmt: rusqlite::Statement<'_> = match pool.prepare(CLOSEST_GENE_SQL) {
-            Ok(stmt) => stmt,
-            Err(err) => return Err(format!("{}", err)),
-        };
+        let mut stmt: rusqlite::Statement<'_> = pool.prepare(CLOSEST_GENE_SQL)?;
 
         // query_map converts rusqlite into a standard iterator
-        let mapped_rows = match stmt.query_map(
+        let mapped_rows = stmt.query_map(
             rusqlite::params![mid, level as u8, location.chr, mid, n],
             |row: &rusqlite::Row<'_>| row_to_feature(row),
-        ) {
-            Ok(rows) => rows,
-            Err(err) => return Err(format!("{}", err)),
-        };
+        )?;
 
         // filter map because the query returns an iterator of results
         // and if element is ok, the data is the feature record. Use
@@ -330,45 +342,14 @@ impl Loctogene {
 // }
 
 fn row_to_feature(row: &rusqlite::Row<'_>) -> Result<GenomicFeature, rusqlite::Error> {
-    let id: u32 = match row.get(0) {
-        Ok(v) => v,
-        Err(err) => return Err(err),
-    };
-
-    let chr: String = match row.get(1) {
-        Ok(v) => v,
-        Err(err) => return Err(err),
-    };
-
-    let start: u32 = match row.get(2) {
-        Ok(v) => v,
-        Err(err) => return Err(err),
-    };
-
-    let end: u32 = match row.get(3) {
-        Ok(v) => v,
-        Err(err) => return Err(err),
-    };
-
-    let strand: String = match row.get(4) {
-        Ok(v) => v,
-        Err(err) => return Err(err),
-    };
-
-    let gene_id: String = match row.get(5) {
-        Ok(v) => v,
-        Err(err) => return Err(err),
-    };
-
-    let gene_symbol: String = match row.get(6) {
-        Ok(v) => v,
-        Err(err) => return Err(err),
-    };
-
-    let dist: i32 = match row.get(7) {
-        Ok(v) => v,
-        Err(err) => return Err(err),
-    };
+    let id: u32 = row.get(0)?;
+    let chr: String = row.get(1)?;
+    let start: i32 = row.get(2)?;
+    let end: i32 = row.get(3)?;
+    let strand: String = row.get(4)?;
+    let gene_id: String = row.get(5)?;
+    let gene_symbol: String = row.get(6)?;
+    let dist: i32 = row.get(7)?;
 
     Ok(GenomicFeature {
         id,
