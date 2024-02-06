@@ -2,6 +2,7 @@ use std::fmt;
 
 use dna::Location;
 use r2d2_sqlite::SqliteConnectionManager;
+
 use serde::Serialize;
 
 mod tests;
@@ -9,6 +10,16 @@ mod tests;
 const WITHIN_GENE_SQL: &str = r#"SELECT id, chr, start, end, strand, gene_id, gene_symbol, start - ? 
     FROM genes 
     WHERE level=? AND chr=? AND ((start <= ? AND end >= ?) OR (start <= ? AND end >= ?)) 
+    ORDER BY start ASC"#;
+
+const IN_EXON_SQL: &str = r#"SELECT id, chr, start, end, strand, gene_id, gene_symbol, start - ? 
+    FROM genes 
+    WHERE level=3 AND gene_id=? AND chr=? AND ((start <= ? AND end >= ?) OR (start <= ? AND end >= ?)) 
+    ORDER BY start ASC"#;
+
+const IN_PROMOTER_SQL: &str = r#"SELECT id, chr, start, end, strand, gene_id, gene_symbol, start - ? 
+    FROM genes 
+    WHERE level=2 AND gene_id=? AND chr=? AND ? >= stranded_start - ? AND ? <= stranded_start + ? 
     ORDER BY start ASC"#;
 
 const CLOSEST_GENE_SQL: &str = r#"SELECT id, chr, start, end, strand, gene_id, gene_symbol, stranded_start - ? 
@@ -55,6 +66,26 @@ impl fmt::Display for Level {
         }
     }
 }
+
+#[derive(Serialize)]
+pub struct TSSRegion {
+    pub offset_5p: i32,
+    pub offset_3p: i32,
+}
+
+impl TSSRegion {
+    pub fn new(offset_5p: i32, offset_3p: i32) -> TSSRegion {
+        return TSSRegion {
+            offset_5p,
+            offset_3p,
+        };
+    }
+}
+
+pub const DEFAULT_TSS_REGION: TSSRegion = TSSRegion {
+    offset_5p: -2000,
+    offset_3p: 1000,
+};
 
 #[derive(Serialize)]
 pub struct GenomicFeature {
@@ -126,18 +157,7 @@ impl Loctogene {
                 location.end,
                 location.end
             ],
-            |row: &rusqlite::Row<'_>| {
-                Ok(GenomicFeature {
-                    id: row.get(0).expect("col 0"),
-                    chr: row.get(1).expect("col 1"),
-                    start: row.get(2).expect("col 2"),
-                    end: row.get(3).expect("col 3"),
-                    strand: row.get(4).expect("col 4"),
-                    gene_id: row.get(5).expect("col 5"),
-                    gene_symbol: row.get(6).expect("col 6"),
-                    dist: row.get(7).expect("col 7"),
-                })
-            },
+            |row: &rusqlite::Row<'_>| row_to_feature(row),
         ) {
             Ok(rows) => rows,
             Err(err) => return Err(format!("{}", err)),
@@ -145,6 +165,118 @@ impl Loctogene {
 
         let features: Vec<GenomicFeature> = mapped_rows
             .filter_map(|x: Result<GenomicFeature, rusqlite::Error>| x.ok())
+            .collect::<Vec<GenomicFeature>>();
+
+        Ok(features)
+    }
+
+    // Returns the exons that a location is in within a particular gene. Useful
+    // for determining if a gene is exonic or not.
+    pub fn in_exon(
+        &self,
+        location: &Location,
+        gene_id: &str,
+    ) -> Result<Vec<GenomicFeature>, String> {
+        let mid: u32 = location.mid();
+
+        let pool: r2d2::PooledConnection<SqliteConnectionManager> = match self.pool.get() {
+            Ok(pool) => pool,
+            Err(err) => return Err(format!("{}", err)),
+        };
+
+        let mut stmt: rusqlite::Statement<'_> = match pool.prepare(IN_EXON_SQL) {
+            Ok(stmt) => stmt,
+            Err(err) => return Err(format!("{}", err)),
+        };
+
+        let mapped_rows = match stmt.query_map(
+            rusqlite::params![
+                mid,
+                gene_id,
+                location.chr,
+                location.start,
+                location.start,
+                location.end,
+                location.end
+            ],
+            |row: &rusqlite::Row<'_>| row_to_feature(row),
+        ) {
+            Ok(rows) => rows,
+            Err(err) => return Err(format!("{}", err)),
+        };
+
+        let features: Vec<GenomicFeature> = mapped_rows
+            .filter_map(|x: Result<GenomicFeature, rusqlite::Error>| x.ok())
+            .collect::<Vec<GenomicFeature>>();
+
+        Ok(features)
+    }
+
+    // Returns a list of features if location is in tss of specific gene
+    pub fn in_promoter(
+        &self,
+        location: &Location,
+        gene_id: &str,
+        tss_region: &TSSRegion,
+    ) -> Result<Vec<GenomicFeature>, String> {
+        let mid: u32 = location.mid();
+
+        let pool: r2d2::PooledConnection<SqliteConnectionManager> = match self.pool.get() {
+            Ok(pool) => pool,
+            Err(err) => return Err(format!("{}", err)),
+        };
+
+        let mut stmt1: rusqlite::Statement<'_> = match pool.prepare(IN_PROMOTER_SQL) {
+            Ok(stmt) => stmt,
+            Err(err) => return Err(format!("{}", err)),
+        };
+
+        let mapped_rows_1 = match stmt1.query_map(
+            rusqlite::params![
+                mid,
+                gene_id,
+                location.chr,
+                mid,
+                tss_region.offset_5p,
+                mid,
+                tss_region.offset_3p,
+            ],
+            |row: &rusqlite::Row<'_>| row_to_feature(row),
+        ) {
+            Ok(rows) => rows,
+            Err(err) => return Err(format!("{}", err)),
+        };
+
+        let features_pos =
+            mapped_rows_1.filter_map(|x: Result<GenomicFeature, rusqlite::Error>| x.ok());
+
+        let mut stmt2: rusqlite::Statement<'_> = match pool.prepare(IN_PROMOTER_SQL) {
+            Ok(stmt) => stmt,
+            Err(err) => return Err(format!("{}", err)),
+        };
+
+        // negative strand so flip tss region
+        let mapped_rows_2 = match stmt2.query_map(
+            rusqlite::params![
+                mid,
+                gene_id,
+                location.chr,
+                mid,
+                tss_region.offset_3p,
+                mid,
+                tss_region.offset_5p,
+            ],
+            |row: &rusqlite::Row<'_>| row_to_feature(row),
+        ) {
+            Ok(rows) => rows,
+            Err(err) => return Err(format!("{}", err)),
+        };
+
+        let features_neg =
+            mapped_rows_2.filter_map(|x: Result<GenomicFeature, rusqlite::Error>| x.ok());
+
+        let features: Vec<GenomicFeature> = features_pos
+            .chain(features_neg)
             .collect::<Vec<GenomicFeature>>();
 
         Ok(features)
@@ -168,23 +300,10 @@ impl Loctogene {
             Err(err) => return Err(format!("{}", err)),
         };
 
-        println!("{}", level as u8);
-
         // query_map converts rusqlite into a standard iterator
         let mapped_rows = match stmt.query_map(
             rusqlite::params![mid, level as u8, location.chr, mid, n],
-            |row: &rusqlite::Row<'_>| {
-                Ok(GenomicFeature {
-                    id: row.get(0).expect("col 0"),
-                    chr: row.get(1).expect("col 1"),
-                    start: row.get(2).expect("col 2"),
-                    end: row.get(3).expect("col 3"),
-                    strand: row.get(4).expect("col 4"),
-                    gene_id: row.get(5).expect("col 5"),
-                    gene_symbol: row.get(6).expect("col 6"),
-                    dist: row.get(7).expect("col 7"),
-                })
-            },
+            |row: &rusqlite::Row<'_>| row_to_feature(row),
         ) {
             Ok(rows) => rows,
             Err(err) => return Err(format!("{}", err)),
@@ -200,4 +319,65 @@ impl Loctogene {
 
         Ok(features)
     }
+
+    // Returns element
+}
+
+// fn mapped_rows_to_features(mapped_rows: MappedRows<'_, impl Fn(&Row<'_>) -> Result<GenomicFeature, Error>>) -> Vec<GenomicFeature> {
+//     return mapped_rows
+//     .filter_map(|x: Result<GenomicFeature, rusqlite::Error>| x.ok())
+//     .collect::<Vec<GenomicFeature>>();
+// }
+
+fn row_to_feature(row: &rusqlite::Row<'_>) -> Result<GenomicFeature, rusqlite::Error> {
+    let id: u32 = match row.get(0) {
+        Ok(v) => v,
+        Err(err) => return Err(err),
+    };
+
+    let chr: String = match row.get(1) {
+        Ok(v) => v,
+        Err(err) => return Err(err),
+    };
+
+    let start: u32 = match row.get(2) {
+        Ok(v) => v,
+        Err(err) => return Err(err),
+    };
+
+    let end: u32 = match row.get(3) {
+        Ok(v) => v,
+        Err(err) => return Err(err),
+    };
+
+    let strand: String = match row.get(4) {
+        Ok(v) => v,
+        Err(err) => return Err(err),
+    };
+
+    let gene_id: String = match row.get(5) {
+        Ok(v) => v,
+        Err(err) => return Err(err),
+    };
+
+    let gene_symbol: String = match row.get(6) {
+        Ok(v) => v,
+        Err(err) => return Err(err),
+    };
+
+    let dist: i32 = match row.get(7) {
+        Ok(v) => v,
+        Err(err) => return Err(err),
+    };
+
+    Ok(GenomicFeature {
+        id,
+        chr,
+        start,
+        end,
+        strand,
+        gene_id,
+        gene_symbol,
+        dist,
+    })
 }
