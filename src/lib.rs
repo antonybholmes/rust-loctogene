@@ -12,6 +12,11 @@ const WITHIN_GENE_SQL: &str = r#"SELECT id, chr, start, end, strand, gene_id, ge
     WHERE level = ? AND chr = ? AND ((start <= ? AND end >= ?) OR (start <= ? AND end >= ?)) 
     ORDER BY start ASC"#;
 
+const WITHIN_GENE_AND_PROMOTER_SQL: &str = r#"SELECT id, chr, start, end, strand, gene_id, gene_symbol, start - ? 
+    FROM genes 
+    WHERE level = ? AND chr = ? AND ((start - ? <= ? AND end + ? >= ?) OR (start - ? <= ? AND end + ? >= ?)) 
+    ORDER BY start ASC"#;
+
 const IN_EXON_SQL: &str = r#"SELECT id, chr, start, end, strand, gene_id, gene_symbol, start - ? 
     FROM genes 
     WHERE level=3 AND gene_id=? AND chr=? AND ((start <= ? AND end >= ?) OR (start <= ? AND end >= ?)) 
@@ -103,6 +108,12 @@ impl TSSRegion {
             offset_5p,
             offset_3p,
         };
+    }
+}
+
+impl fmt::Display for TSSRegion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[{},{}]", self.offset_5p, self.offset_3p)
     }
 }
 
@@ -203,6 +214,42 @@ impl Loctogene {
                 location.start,
                 location.start,
                 location.end,
+                location.end
+            ],
+            |row: &rusqlite::Row<'_>| row_to_feature(row),
+        )?;
+
+        let features: Vec<GenomicFeature> = mapped_rows
+            .filter_map(|x: Result<GenomicFeature, rusqlite::Error>| x.ok())
+            .collect::<Vec<GenomicFeature>>();
+
+        Ok(features)
+    }
+
+    pub fn get_genes_within_promoter(
+        &self,
+        location: &Location,
+        level: Level,
+        pad:i32,
+    ) -> Result<Vec<GenomicFeature>, Box<dyn Error>> {
+        let mid: i32 = location.mid();
+
+        let pool: r2d2::PooledConnection<SqliteConnectionManager> = self.pool.get()?;
+
+        let mut stmt: rusqlite::Statement<'_> = pool.prepare(WITHIN_GENE_AND_PROMOTER_SQL)?;
+
+        let mapped_rows = stmt.query_map(
+            rusqlite::params![
+                mid,
+                level as u8,
+                location.chr,
+                pad,
+                location.start,
+                pad,
+                location.start,
+                pad,
+                location.end,
+                pad,
                 location.end
             ],
             |row: &rusqlite::Row<'_>| row_to_feature(row),
