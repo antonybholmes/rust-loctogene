@@ -98,16 +98,30 @@ impl fmt::Display for Level {
 
 #[derive(Serialize, Debug, PartialEq, Eq, Clone, Copy)]
 pub struct TSSRegion {
-    pub offset_5p: i32,
-    pub offset_3p: i32,
+    offset_5p: i32,
+    offset_3p: i32,
 }
 
 impl TSSRegion {
-    pub fn new(offset_5p: i32, offset_3p: i32) -> TSSRegion {
+    pub fn new(offset_5p: i32, offset_3p: i32) -> Self {
         return TSSRegion {
-            offset_5p,
-            offset_3p,
+            offset_5p:offset_5p.abs(),
+            offset_3p:offset_3p.abs(),
         };
+    }
+
+    pub fn offset_5p(self) -> i32 {
+        return self.offset_5p
+    }
+
+    pub fn offset_3p(self) -> i32 {
+        return self.offset_3p
+    }
+}
+
+impl Default for TSSRegion {
+    fn default() -> Self {
+        Self { offset_5p: 2000, offset_3p: 1000 }
     }
 }
 
@@ -117,10 +131,11 @@ impl fmt::Display for TSSRegion {
     }
 }
 
-pub const DEFAULT_TSS_REGION: TSSRegion = TSSRegion {
-    offset_5p: -2000,
-    offset_3p: 1000,
-};
+
+//
+//    offset_5p: 2000,
+//    offset_3p: 1000,
+//};
 
 #[derive(Serialize, Debug, PartialEq, Eq, Clone)]
 pub struct GenomicFeature {
@@ -149,7 +164,7 @@ pub struct Loctogene {
 }
 
 impl Loctogene {
-    pub fn new(file: &str) -> Result<Loctogene, Box<dyn Error>> {
+    pub fn new(file: &str) -> Result<Self, Box<dyn Error>> {
         // let db: Connection = match Connection::open(file) {
         //     Ok(db) => db,
         //     Err(err) => return Err(format!("{}", err)),
