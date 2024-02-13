@@ -98,23 +98,23 @@ impl fmt::Display for Level {
 
 #[derive(Serialize, Debug, PartialEq, Eq, Clone, Copy)]
 pub struct TSSRegion {
-    offset_5p: i32,
-    offset_3p: i32,
+    offset_5p: u32,
+    offset_3p: u32,
 }
 
 impl TSSRegion {
-    pub fn new(offset_5p: i32, offset_3p: i32) -> Self {
+    pub fn new(offset_5p: u32, offset_3p: u32) -> Self {
         return TSSRegion {
-            offset_5p:offset_5p.abs(),
-            offset_3p:offset_3p.abs(),
+            offset_5p:offset_5p ,
+            offset_3p:offset_3p ,
         };
     }
 
-    pub fn offset_5p(self) -> i32 {
+    pub fn offset_5p(self) -> u32 {
         return self.offset_5p
     }
 
-    pub fn offset_3p(self) -> i32 {
+    pub fn offset_3p(self) -> u32 {
         return self.offset_3p
     }
 }
@@ -141,8 +141,8 @@ impl fmt::Display for TSSRegion {
 pub struct GenomicFeature {
     pub id: u32,
     pub chr: String,
-    pub start: i32,
-    pub end: i32,
+    pub start: u32,
+    pub end: u32,
     pub strand: String,
     pub gene_id: String,
     pub gene_symbol: String,
@@ -215,7 +215,7 @@ impl Loctogene {
         location: &Location,
         level: Level,
     ) -> Result<Vec<GenomicFeature>, Box<dyn Error>> {
-        let mid: i32 = location.mid();
+        let mid: u32 = location.mid();
 
         let pool: r2d2::PooledConnection<SqliteConnectionManager> = self.pool.get()?;
 
@@ -245,9 +245,9 @@ impl Loctogene {
         &self,
         location: &Location,
         level: Level,
-        pad:i32,
+        pad:u32,
     ) -> Result<Vec<GenomicFeature>, Box<dyn Error>> {
-        let mid: i32 = location.mid();
+        let mid: u32 = location.mid();
 
         let pool: r2d2::PooledConnection<SqliteConnectionManager> = self.pool.get()?;
 
@@ -284,7 +284,7 @@ impl Loctogene {
         location: &Location,
         gene_id: &str,
     ) -> Result<Vec<GenomicFeature>, Box<dyn Error>> {
-        let mid: i32 = location.mid();
+        let mid: u32 = location.mid();
 
         let pool: r2d2::PooledConnection<SqliteConnectionManager> = self.pool.get()?;
 
@@ -317,7 +317,7 @@ impl Loctogene {
         gene_id: &str,
         tss_region: &TSSRegion,
     ) -> Result<Vec<GenomicFeature>, Box<dyn Error>> {
-        let mid: i32 = location.mid();
+        let mid: u32 = location.mid();
 
         let pool: r2d2::PooledConnection<SqliteConnectionManager> = self.pool.get()?;
 
@@ -371,7 +371,7 @@ impl Loctogene {
         n: u16,
         level: Level,
     ) -> Result<Vec<GenomicFeature>, Box<dyn Error>> {
-        let mid: i32 = location.mid();
+        let mid: u32 = location.mid();
 
         let pool: r2d2::PooledConnection<SqliteConnectionManager> = self.pool.get()?;
 
@@ -406,8 +406,8 @@ impl Loctogene {
 fn row_to_feature(row: &rusqlite::Row<'_>) -> Result<GenomicFeature, rusqlite::Error> {
     let id: u32 = row.get(0)?;
     let chr: String = row.get(1)?;
-    let start: i32 = row.get(2)?;
-    let end: i32 = row.get(3)?;
+    let start: u32 = row.get(2)?;
+    let end: u32 = row.get(3)?;
     let strand: String = row.get(4)?;
     let gene_id: String = row.get(5)?;
     let gene_symbol: String = row.get(6)?;
